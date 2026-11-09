@@ -1,0 +1,346 @@
+---
+title: "MXB262 Final Project"
+author: "Monique Soth   12023868"
+date: "2025-04-13"
+output: word_document
+---
+
+## Introduction:
+
+Valorant was a game that took the world by storm ever since its humble beginnings in 2020, helping to form communities, normalise gaming and online spaces and fill a rich, prestigious and refreshing niche in modern-day esports. With competitive play ranging from progressing through the in-game ranking system to playing against established teams internationally, it encouraged many to compete. The highest level of esports consisted of three main regions, the Americas, EMEA (Europe, Middle East and Africa) and APAC (Asia-Pacific) and required teams to excel in their respective regions before competing in one of three international tournaments. With the introduction to a new region, VCT China, competitive play for 2024 specifically sparked the interest of many viewers across all communities as the audience’s welcome new talent to the international stage. To highlight the meta that flourishes in these events, a collection of visualisations was created to answer the question, “How diverse were Valorant players during 2024 international tournaments?”.  
+
+## Datasets Used:
+
+The datasets used were the Valorant Champion Tour 2021-2025 data published by Ryan Luong on [Kaggle]( https://www.kaggle.com/datasets/ryanluong1/valorant-champion-tour-2021-2023-data) and implemented on R. Due to the volume of data available, it was filtered to only include data from 2024 international tournaments, which details player statistics, team statistics and strategies, and match outcomes for all matches within the Masters Madrid 2024, Masters Shanghai 2024 and Champions Tour 2024 trifecta.  Additionally, to gather spatial data, team information was gained from [Liquipedia]( https://liquipedia.net/valorant/index.php?search=) to find and locate their headquarters and place of operation. To ensure all plots are reproducible, all relevant data wrangling procedures will be detailed below along with accompanying code for each visualisation.
+
+## Who is this for? Audience
+
+The audience would be casual watchers of professional Valorant esports matches, specifically viewers of the annual Champions tour interested in the diversity of gameplay within the tournaments played in 2024.  Additionally, esports coaches could use these datasets to justify or propose new strategies that could change the meta in combination with more precise statistics. 
+
+
+## Preliminary Packages
+
+```{r preparation}
+
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(tidyverse)
+library(ggnetwork)
+library(igraph)
+library(ggraph)
+library(rnaturalearth)
+library(sf)
+library(ggrepel)
+library(ggiraph)
+library(ggiraphExtra)
+library(cowplot)
+library(patchwork)
+```
+
+
+
+
+### Loading the Data
+
+```{r load-data}
+
+map_scores<-read.csv("./final-data/maps_scores.csv")
+agent_pick_rates<-read.csv("./final-data/agents_pick_rates.csv")
+
+
+v2<-read.csv("./final-data/new_vert.csv")
+edges<-read.csv("./final-data/edges.csv")
+
+player_stats<-read.csv("./final-data/players_stats.csv")
+
+```
+
+
+## Visualisation 1: Top 5 Agent selections for Maps in Masters Madrid
+
+### Relevant Code
+
+```{r v1 wrangling}
+
+
+#to find the top 3 most played maps during Masters Madrid, we used this code:
+#filtering
+map_scores_madrid<-map_scores%>%filter(Tournament == "Champions Tour 2024: Masters Madrid")
+
+#(optional) changing maps to factors
+map_scores_madrid$Map<-as.factor(map_scores_madrid$Map) 
+
+#count the number of played maps
+count(map_scores_madrid, Map, sort = TRUE)%>%top_n(5) 
+#the top 3 maps played during masters madrid 2024 are split (9), lotus (8) and sunset (8)
+
+
+#filtering the agent_pick_rate data for Masters Madrid only
+agent_pr_madrid<-agent_pick_rates%>%filter(Tournament == "Champions Tour 2024: Masters Madrid")
+
+#changing pick rate from percentage to decimal
+agent_pr_madrid$Pick.Rate<-as.numeric(sub("%", "",agent_pr_madrid$Pick.Rate,fixed=TRUE))/100
+
+#getting the top agents
+#filter by map
+agent_pr_maps<-agent_pr_madrid%>%filter(Map %in% c("Split", "Lotus", "Sunset"), Match.Type == "All Match Types")
+
+#count the pick rates
+madrid_pick_rates<-agent_pr_maps%>%select(c("Map","Agent","Pick.Rate"))%>%group_by(Map)%>%top_n(5,Pick.Rate)
+
+#adding agent types from liquipedia information
+madrid_pick_rates$Type<-c("Controller","Controller","Duelist","Duelist","Initiator","Controller","Controller","Duelist","Sentinel","Initiator","Controller","Controller","Initiator","Initiator","Sentinel","Initiator")
+
+#change to factor (makes it easier when making legends)
+madrid_pick_rates$Type<-factor(madrid_pick_rates$Type, levels = c("Controller","Duelist","Initiator","Sentinel"))
+
+```
+
+
+```{r viz1}
+
+#plotting the initial visualisation
+top_agent_map<-ggplot(data = madrid_pick_rates, mapping = aes(x = Agent, y= Pick.Rate, color = Agent)) +  #show data and aesthetics
+  geom_point(aes(shape = Type), size = 2) + scale_shape_manual(values = c(15,17,18,19))+ #configure                                                                                            lollipop
+  geom_segment(aes(x = Agent, xend = Agent, y = 0, yend = Pick.Rate)) + #configure lollipop length
+  coord_flip() + facet_wrap(~Map) + #flip to landscape and facet
+  ylab("Agent Pick Rate (Decimal)") + xlab("Agent") + #axis labelling
+  ggtitle("Top 5 Picked Agents for Masters Madrid, 2024 on Split, Lotus and Sunset") #title
+
+#add aesthetic features to top_agent_map
+
+#start by assigning each agent and map a colour palette representative of them
+#this was gained from color-hex.com from user Sweetpotatogames22
+agent_col<-c("#fead78", "#a83c49","#63ad5d","#77d4e4","#2f4fff","#E188FC","#766c92"
+             ,"#ea7134","#39d8a6","#38b3dd","#a1bd48" )
+
+#assign map colours based off relevant colour schemes
+map_col<-c("#f4e3f2", "#def9dc","#f9e8dc")
+
+#add aesthetic features to the initial plot
+top_agent_map+ 
+  scale_colour_manual(name = "Agents", values = agent_col)+
+  geom_rect(aes(fill = Map),data = madrid_pick_rates, inherit.aes = FALSE,
+            xmin=-Inf, xmax=Inf, ymin = -Inf, ymax=Inf, alpha = 0.1) +
+  scale_fill_manual(values = map_col)+
+  theme(panel.background = element_rect(colour = "white"),
+        legend.margin = margin(0,0,0,0),
+        legend.spacing.x = unit(0, "mm"),
+        legend.spacing.y = unit(0, "mm"),
+        legend.title = element_text(size = 9))+
+  guides(fill = "none")
+
+```
+
+### Description and Plot Type
+This visualisation displays the top 5 picked agents for Masters Madrid 2024, their individual pick rates and agent types, across the following maps: Lotus, Split and Sunset. Since the game’s inception, the agent count started with 5 playable characters, eventually expanding to a total of 28 agents by 2025. Using a team composed of 5 agents, the individual and combined playstyles solely based on agent selection yield a vast range of strategies observed in professional tournaments. 
+
+
+The plot type used was a lollipop plot, in which agents were differentiated using qualitative colour selection reflecting their appearance in-game and point shape to categorise agents into one of 4 main types. Additionally, faceting was used for each map with shared axes for agents, and the coordinates were flipped to make the dataset fit better in landscape orientation. The faceted plots were also differentiated by colour (pink, green and orange respectively) based off map colour scheme to show the importance of map choice on agent selection.
+
+### Audience and Intention
+The audience would be casual watchers of Valorant esports interested in agent statistics during Masters Madrid irrespective of team and region. Additionally, this dataset would be valuable to coaches interested in evaluating gameplay of teams from previous years to implement into future teams. The intention of this visualisation is to recognise the current agent meta for the following maps and evaluate the team compositions and team performance during Masters Madrid. It can be assumed that the high percentage pick rate yields success in matches so the audience can act to implement these agent compositions in their games.  The static image and colour contrast yields a reader-driven approach to interpreting data, in which agent compositions are expressed through colour choice, line lengths, shape and faceting to illustrate gameplay diversity.  
+
+These attributes were used to communicate the various factors contributing to playstyles during Masters Madrid. Faceting by map and colouring the background of each map provides sufficient contrast to differentiate between team compositions within maps and show that agent selection is dependent on map. As agent types are imperative in determining the current meta of each map, due to their contrasting playstyles, it was essential to highlight the general agent type composition using line shape. Finally, to add visual interest and contrast between agents and maps, a qualitative colour palette was shown to effectively highlight pick rates for all agents across the facets. Legends accompanied these aesthetic features, with a colour legend for agent and a shape legend for agent type to increase readability.
+
+### Roadblocks and Improvements
+The main roadblocks for this visualisation were determining how to display the data. I had a specific vision for what the visualisation needed to look like, as it was imperative to show that map choice and agent type would ultimately affect the agent selection. Faceting and colouring each panel proved to be quite difficult but required as the additional information would provide visual interest (in that the viewer would have a different experience with each facet).
+
+Some improvements that could be implemented into this visualisation would be to use the Shiny app to make the plots interactive with a horizontal scroller bar, in which agent selections across all 11 maps (or, 10 if this is based off the 2024 map selection) can be implemented and viewed separately or together by moving the scroller. Due to the limits of plot sizes, it would be most effective to have one row of agent selection plots that can be visited freely by the audience without overplotting. Additionally, it would be highly effective to isolate the agent selection statistics for each map and accompany this visualisation with information of the top 3 most used agent compositions on this map. To make sure this clearly communicates the variety within agent selection, the top three team compositions can be accompanied with percentages of use, and all available agents can be factors within the lollipop plot. This increase in agents selected would ultimately increase the height of the figure but provide a more accurate visualisation that considers individual agent selection and popular team compositions.  
+
+
+
+## Visualisation 2: Network of Valorant Teams across the globe for 
+
+### Relevant Code
+```{r viz2 wrangling}
+
+netpal<-c("#1f96d6","#bf1b1b","#facb8a")
+
+world<-ne_countries(scale = "medium", returnclass = "sf")
+
+v2$lon<-as.numeric(v2$lon)
+v2$lat<-as.numeric(v2$lat)
+
+t_loc<-v2%>%filter(size == 5)%>%dplyr::select(name, lon, lat)
+
+
+net_obj<-graph_from_data_frame(d = edges, vertices = v2, directed = FALSE)
+```
+
+
+```{r network output}
+sf::sf_use_s2(FALSE)
+ggraph(net_obj, layout = "manual", x = v2$lon, y = v2$lat)+
+  geom_sf(data = world, colour = "#a1b0c8", fill = "white")+
+  coord_sf(xlim = c(-130.00, 155), ylim  = c(-60.00, 80), expand = F)+
+  scale_x_continuous(breaks=seq(-130,150,25))+
+  scale_y_continuous(breaks = seq(-60,80,25))+
+  geom_edge_link(colour = "#566988")+
+  geom_node_point(size = 2, color = "#9bbcac")+
+  geom_point(data = t_loc, aes(x = lon, y = lat, col = name), size =4, shape = 18)+
+  scale_colour_manual(values = netpal)+
+  geom_text_repel(data = t_loc, aes(x=lon, y=lat,label = name), fontface = "bold", size = 3)+
+  xlab("Longitude")+ylab("Latitude")+ggtitle("Network Of Valorant Teams to Champions Tour 2024 Tournaments")+
+  theme(panel.background = element_rect(fill = "#cadaf9"),
+        panel.border = element_rect(colour = "black", fill = "transparent", linewidth = 2),
+        panel.grid.major = element_line(colour = "#5c739f", size = 0.3),
+        panel.grid.minor = element_line(colour = "red", size = 0.5),
+        axis.line = element_line(),
+        axis.ticks = element_line(),
+        axis.text = element_text(),
+        axis.title = element_text()
+        )+
+  
+  guides(colour = "none")
+```
+
+### Description:
+This visualisation uses spatial data from to determine the latitude and longitude of the top 8 teams participating in the following three tournaments - Masters Madrid, Masters Shanghai and the Champions tour – to form a network across the globe. This visualisation aims to show the geographical diversity that may interact with the playstyles within professional play in 2024 and express how future competitors need to consider and adapt to different strategies within regions. 
+
+### Plot Type
+The plot types used were a network, with nodes assigned to each Valorant team using latitude and longitude coordinates, layered over an empty map of the world. Additionally, individual points were added to identify and differentiate the three major international tournaments using size and shape. The spatial analysis was kept blank to draw attention to the networks and connections between each team and their respective tournament locations.
+
+### Audience and Intention
+Due to the lack of quantitative data, the audience would be casual Valorant players or viewers of esports that are interested in the different cultures participating in competition. This spatial network aims to address the diversity in playstyles relating to different regions of players and highlight which regions are dominant, earning the most positions to compete at the highest level. It also encourages the audience to study the playstyles of different teams across the world. The static image allows the audience to freely look at any point, in which the eyes are initially drawn towards the three international tournaments before freely looking at any connected nodes or regions of interest. This is reader-driven with encouragement to look at tournament locations first, due to the colour, shape and size contrast of the nodes, before viewing each team node in green, directed by the length of each edge. The annotated chart uses networks to convey connections between teams and tournaments, with teams having green nodes and each tournament, Masters Madrid, Champions Tour and Masters Shanghai being red, blue and gold respectively. The use of colour, line angle for edges, colour intensity and shape have been used to convey these relationships. 
+
+### Roadblocks and Improvements
+Some roadblocks encountered when making this visualisation include making both the network and spatial object work effectively together specifically when plotting the two different types together. A combination of the igraph, ggraph, rnaturalearth and sf were used to layer the plots correctly to do this. Without implementing these procedures, the visualisation would not work and displaying player diversity through geographical means would not be communicated as succinctly with another plot type. 
+To improve this visualisation not within the scope of the report, it would be highly recommended that the plot become interactive such that hovering over each node would show the team’s name, location of competition and their ranking. Additionally, due to the volume of data supplied and the variety of regional matches occurring before international tournaments, implementation of this data through a dropdown menu to view the differences in network systems for each year of competitive play would be highly effective. This makes the visualisation a reader-driven interactive plot that becomes a slideshow of the geographical diversity of teams each year respective of the tournaments and years chosen.
+
+
+## Visualisation 3:
+
+```{r viz3 wrangling}
+
+#these are the teams that made it to playoffs
+team_labels<-c("EDward Gaming", "DRX", "FNATIC", "G2 Esports", "LEVIATÁN", "Sentinels","Team Heretics","Trace Esports")
+stats_champs<-player_stats%>%filter(Tournament == "Valorant Champions 2024", Match.Type == "All Match Types")
+
+stats_champs<-stats_champs%>%dplyr::select(Match.Type,Player, Teams, Agents, Rating, Average.Combat.Score,Kills.Deaths, Kill..Assist..Trade..Survive.., Clutch.Success..)
+
+stats_sliced<-stats_champs[grepl("[a-zA-Z],", stats_champs$Agents),]
+fin_sliced<-stats_sliced%>%filter(Teams %in% team_labels)%>%group_by(Player)
+
+
+
+
+#change percentages to decimal for KAST and Clutch Success
+fin_sliced$Kill..Assist..Trade..Survive..<-as.numeric(sub("%", "",fin_sliced$Kill..Assist..Trade..Survive..,fixed=TRUE))/100
+ 
+fin_sliced$Clutch.Success..<-as.numeric(sub("%", "",fin_sliced$Clutch.Success..,fixed=TRUE))/100
+colnames(fin_sliced)<-c("Match.Type","Player","Teams","Agents","R","ACS","KD","KAST","CS")
+
+#turn the rating into a percentage
+fin_sliced$R<-(fin_sliced$R)/(max(fin_sliced$R))
+
+```
+
+```{r radars!}
+
+
+edg<-fin_sliced%>%filter(Teams == "EDward Gaming")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#e0b71d",5))+
+      scale_fill_manual(values = rep("#facb8a",5))
+      
+
+drx<-fin_sliced%>%filter(Teams == "DRX")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#264584",5))+
+      scale_fill_manual(values = rep("#92a1bf",5))
+      
+
+fna<-fin_sliced%>%filter(Teams == "FNATIC")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#e18c26",5))+
+      scale_fill_manual(values = rep("#fac6a5",5))
+       
+
+g2<-fin_sliced%>%filter(Teams == "G2 Esports")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#480505",5))+ #alternatively #2c2c2c
+      scale_fill_manual(values = rep("#dac6c6",5)) #alternatively #bfbbbb
+
+lev<-fin_sliced%>%filter(Teams == "LEVIATÁN")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#34a7b1",5))+ 
+      scale_fill_manual(values = rep("#addbdf",5)) 
+
+
+sen<-fin_sliced%>%filter(Teams == "Sentinels")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#ad2828",5))+ 
+      scale_fill_manual(values = rep("#feb6b6",5)) 
+       
+
+th<-fin_sliced%>%filter(Teams == "Team Heretics")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#156142",5))+ 
+      scale_fill_manual(values = rep("#a3c4b6",5)) 
+       
+
+tra<-fin_sliced%>%filter(Teams == "Trace Esports")%>%
+      ggRadar(aes(group = Player), scales ="free")+
+      scale_colour_manual(values = rep("#2d289e",5))+
+      scale_fill_manual(values = rep("#becbeb",5))
+      
+      
+
+clean_plot<-function(plot, title) {
+  plot + ggtitle(title)+
+    theme(legend.position = "none",
+          axis.text.x = element_text(colour="black", size=10), 
+          text = element_text(size = 3),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.border = element_blank(),
+          plot.margin = margin(0,0,0,0),
+          panel.spacing = unit(0, "pt"),
+          plot.title = element_text(size = 8, hjust = 0.5, margin = margin(b = 2)),
+          plot.background = element_rect(colour = "white", fill = "white"),
+          panel.background = element_rect(colour = "white", fill = "white"),
+          panel.grid.major = element_line(colour = "darkgrey"))+
+      annotate("text", x = 0, 
+           y = seq(0, 1, 0.25), 
+           label = seq(0, 1, 0.25),size = 3, alpha = 0.9)
+
+}
+
+team_plots<-list(edg, drx, fna, g2, lev, sen, th, tra)
+```
+
+
+```{r output viz3}
+
+cleaned_plots<-Map(clean_plot,team_plots,team_labels)
+
+g <- wrap_plots(cleaned_plots, ncol = 4, nrow = 2)
+#girafe(ggobj = g, width_svg = 8, height_svg = 5) this is an interactive version
+
+radars<-plot_grid(g)
+
+#make a title
+title<-ggdraw()+
+  draw_label("Player Performance by Team for Playoffs at Masters Shanghai 2024", fontface = "bold",
+             x = 0, hjust = -0.1)
+subtitle<-ggdraw()+
+  draw_label("By Rating, Average Combat Score, K/D, KAST, and Clutch Success", fontface =3, size = 10)
+
+
+plot_grid(title,subtitle, radars, ncol = 1, rel_heights = c(0.1,0.05,1))
+
+```
+
+### Description
+This last visualisation uses player stats to form radar plots of each team to demonstrate the different stats of the top 8 teams competing at masters shanghai. By grouping each player by team and comparing player rating, average combat score, kills per death, kills/assists/survivals/trades per round and clutch success percentage, a general look into each team’s playstyle can be observed. 
+
+### Audience and Intention
+The audience remains casual viewers of esports interested in general player statistics for each team competing in Masters Shanghai. The collection of radar plots intends to agree that whilst each team has different strengths and weaknesses, each team has members who play into each other’s strengths and weaknesses. Additionally, it highlights the general strengths each team has when quantifying in-game performance and encourages the audience to study each team’s strategies based off the statistics supplied. The static annotated chart allows the audience to view all available radar plots, and each radar plot uses colour, area, line angle and colour intensity to suggest an order in a reader-driven manner. The individual player statistics were grouped by team and plotted by player, in which teams were categorised by different plots and colour selection. Text labelling was used to show what each vertex statistic corresponded to. 
+
+### Roadblocks and Improvements
+The main roadblocks associated with this visualisation would be the faceting of each plot. Due to the rigidness of the ggRadar function, it was impossible to run one command that produced eight plots; hence eight commands were used. Using cowplot and patchwork, these eight plots were stitched together to minimise white spaces between each figure, and a title and subtitle was added in the end to effectively communicate the intention of the visualisation. Without this aesthetic choice, it would be extremely difficult to communicate the diversity of playstyles dependent on each team especially if only one radar plot was used. Hence, it was essential to implement a way to facet the radar plots by team, whilst keeping every player on their respective radar chart to ensure the viewing experience is highly pleasant and provide comparisons between team and player statistics.
+An extension to this radar plot that would increase the visual interest of each plot would be an animation that unravels the radar plot into a bar graph or lollipop plot. Due to the circular orientation of radar plots, it can become visually straining to locate specific statistics for each player or team such that it becomes a key weakness to its visualisation quality. To combat this, an animation can be made so that with the press of a button, each of the radar plots can unravel into faceted bar graphs or lollipop plots to more effectively retrieve key information. Another improvement that involves making the plot interactive would be using a combination of shiny or ggraph packages to make it possible to highlight an individual player’s stats within the radar plot. By hovering over a node of interest, the whole group could be highlighted, along with showing that player’s name and individual stats at each vertex of the visualisation. This adjustment could expand the audience towards professional esports coaches that can isolate and evaluate on their players strengths and weaknesses. The precise values supplied make data analysis much more accessible to those who require precise and accurate statistics that the radar charts normally cannot provide.
+
+
